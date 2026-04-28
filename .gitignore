@@ -1,0 +1,22 @@
+s# Środowisko wirtualne (najważniejsze!)
+venv/
+.venv/
+env/
+ven/
+
+# Pliki Pythona (skompilowane)
+__pycache__/
+*.py[cod]
+
+# Pliki konfiguracyjne z hasłami (bardzo ważne!)
+.env
+
+# Pliki systemowe i IDE
+.vscode/
+.idea/
+.DS_Store
+
+#
+Dane/
+Obrazy/
+refs/
