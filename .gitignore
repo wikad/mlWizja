@@ -1,22 +1,15 @@
-s# Środowisko wirtualne (najważniejsze!)
 venv/
 .venv/
 env/
-ven/
-
-# Pliki Pythona (skompilowane)
 __pycache__/
 *.py[cod]
-
-# Pliki konfiguracyjne z hasłami (bardzo ważne!)
 .env
-
-# Pliki systemowe i IDE
 .vscode/
 .idea/
 .DS_Store
 
-#
-Dane/
-Obrazy/
+# referencje paneli tworzone przy pierwszym uruchomieniu
 refs/
+# własne dane i wyniki
+Dane/
+wyniki/

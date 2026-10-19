@@ -7,7 +7,7 @@ class Visualizer:
     def draw_panel_info(overlay, panel, panel_id, changed_mask):
         # Kolorystyka
         if changed_mask is None:
-            color = (255, 0, 0) # Niebieski - Nowy/Ref
+            color = (255, 190, 60) # Jasnoniebieski - nowy panel, zapisano referencję
             status_txt = "REF SAVED"
         elif np.any(changed_mask):
             color = (0, 0, 255) # Czerwony - Błąd
@@ -19,9 +19,21 @@ class Visualizer:
 
         # Rysowanie obrysu i tekstów
         cv2.drawContours(overlay, [panel.box.astype(int)], 0, color, 2)
-        y_pos = int(panel.box[0][1])
-        cv2.putText(overlay, f"ID:{panel_id} {status_txt}", (int(panel.box[0][0]), y_pos-10), 0, 0.6, color, 2)
-        cv2.putText(overlay, f"{panel.angle:.1f} deg", (int(panel.box[0][0]), y_pos-30), 0, 0.5, (0, 255, 255), 1)
+
+        # Podpis przy górnym narożniku panelu, przycięty do granic obrazu
+        h, w = overlay.shape[:2]
+        x = int(np.clip(panel.box[:, 0].min(), 5, w - 200))
+        y = int(np.clip(panel.box[:, 1].min(), 45, h - 5))
+        Visualizer._label(overlay, f"ID:{panel_id} {status_txt}", (x, y - 10), color, 0.6, 2)
+        Visualizer._label(overlay, f"{panel.angle:.1f} deg", (x, y - 32), (0, 255, 255), 0.5, 1)
+
+    @staticmethod
+    def _label(img, text, org, color, scale, thickness):
+        """Tekst z ciemnym tłem, czytelny na każdym podłożu."""
+        (tw, th), base = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)
+        x, y = org
+        cv2.rectangle(img, (x - 3, y - th - 4), (x + tw + 3, y + base), (20, 20, 20), -1)
+        cv2.putText(img, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness, cv2.LINE_AA)
 
     @staticmethod
     def _draw_error_grid(overlay, panel, changed_mask):

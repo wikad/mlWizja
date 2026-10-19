@@ -1,74 +1,83 @@
-# System Analizy Paneli Fotowoltaicznych
+# mlWizja – wykrywanie paneli PV i zmian na ich powierzchni
 
-Projekt detekcji i analizy paneli PV na obrazie z użyciem modelu YOLO i analizy siatki w komórkach.
+System wizji komputerowej do monitoringu instalacji fotowoltaicznych:
+1. **segmentuje panele** na zdjęciu modelem YOLO (Ultralytics),
+2. **prostuje każdy panel** transformacją perspektywiczną i wylicza jego orientację,
+3. dzieli panel na siatkę 10×10 komórek i **porównuje ją z obrazem referencyjnym**, zaznaczając miejsca, w których zmieniła się jasność (zabrudzenie, uszkodzenie, zacienienie).
 
-## Struktura projektu
+![Wynik: referencja, nowe zdjęcie z zabrudzeniem, wykryte zmiany](docs/wynik.jpg)
 
-- `Main.py` - punkt wejścia programu.
-- `src/Panel.py` - klasa `Panel`: detekcja prostokąta, perspektywa, podział na komórki.
-- `src/PanelDetector.py` - klasa `PanelDetector`: ładowanie modelu YOLO (`ultralytics.YOLO`), maski, kontury, filtrowanie obszarów.
-- `src/PanelAnalyzer.py` - klasa `PanelAnalyzer`: siatka 10x10 (domyślnie), referencje `refs/panel_{id}.npy`, wykrycie zmiany lokalnej jasności, analiza koloru komórki.
-- `src/Visualizer.py` - klasy `Visualizer`: rysowanie obwiedni panelu, kolorowych komórek, podświetlanie anomalii, okienko podglądu.
-- `src/Color.py` - pusty placeholder (możesz użyć dla własnych wzorców kolorów).
-- `src/kolory.py` - eksperymentalna detekcja kolorów HSV w siatce komórek i wypisywanie detekcji.
-- `src/m2.py` - alternatywna/duplikatowa wersja klas (Panel, PanelDetector, PanelAnalyzer, Visualizer) - nie używana w `Main.py`.
+*Przykład z folderu `przyklady/`. Na zdjęciu „po” dodano sztucznie dwie plamy brudu. System wykrył obie (czerwone komórki panelu 0), a panel 1 bez zmian dostał status OK.*
 
-## Wymagania
+## Wynik na przykładzie
 
-Zainstaluj wymagane biblioteki:
+```
+$ python Main.py przyklady/panele_referencja.jpg --no-show
+Wykryto paneli: 2
+  Panel 0: Panel(angle=73.9, size=852x242), referencja zapisana
+  Panel 1: Panel(angle=74.8, size=818x244), referencja zapisana
 
-```bash
-pip install -r req.txt
+$ python Main.py przyklady/panele_zabrudzenie.jpg --no-show
+Wykryto paneli: 2
+  Panel 0: Panel(angle=74.3, size=843x241), zmienione komórki: 6/100
+  Panel 1: Panel(angle=74.8, size=820x244), zmienione komórki: 0/100
 ```
 
-Potrzebny jest model w `Model/best.pt` (YOLO/Ultralytics). Dostępne są foldery z danymi `Dane/` i obrazy testowe w `Obrazy/`.
+- Obie plamy zostały wykryte (5 komórek), panel bez zmian ma 0 fałszywych alarmów.
+- Jedna komórka przy krawędzi panelu 0 to fałszywy alarm. Zabrudzenie lekko zmieniło maskę segmentacji, więc wyprostowany panel przesunął się o kilka pikseli względem referencji.
+
+## Jak to działa
+
+```mermaid
+flowchart LR
+    I[Zdjęcie] --> Y[YOLO-seg<br/>maski paneli]
+    Y --> M[scalanie masek<br/>morfologia + kontury]
+    M --> P[minAreaRect<br/>kąt, narożniki]
+    P --> W[warpPerspective<br/>wyprostowany panel]
+    W --> G[siatka 10×10<br/>średnia jasność po equalizeHist]
+    G --> C{referencja<br/>istnieje?}
+    C -- nie --> R[(zapis refs/panel_N.npy)]
+    C -- tak --> D[różnica > próg<br/>→ komórka zmieniona]
+    D --> V[wizualizacja<br/>rzut komórek z powrotem na zdjęcie]
+```
+
+| Moduł | Odpowiada za |
+|---|---|
+| `src/PanelDetector.py` | inferencja YOLO, scalanie masek (`morphologyEx`), kontury, filtrowanie małych obszarów |
+| `src/Panel.py` | geometria panelu: uporządkowane narożniki, kąt, macierze perspektywy `M` i `M⁻¹`, podział na komórki |
+| `src/PanelAnalyzer.py` | siatka jasności z wyrównaniem histogramu, porównanie z referencją, dominujący kolor komórki (HSV) |
+| `src/Visualizer.py` | rysowanie obrysów, statusów (REF / OK / ERR) i komórek zrzutowanych odwrotną perspektywą |
+
+## Technologie
+
+Python · PyTorch · Ultralytics YOLO (segmentacja, model `Model/best.pt`, klasa `solar-panel`) · OpenCV · NumPy
 
 ## Uruchomienie
 
-W `Main.py`:
+```bash
+git clone https://github.com/wikad/mlWizja.git
+cd mlWizja
+pip install -r requirements.txt
 
-1. `detector = pd.PanelDetector("Model/best.pt", conf=0.2)`
-2. `analyzer = pa.PanelAnalyzer()`
-3. `img = cv2.imread(r"Obrazy\Test1.jpg")`
-4. `detected_panels = detector.detect_panels(img)`
+# 1. pierwsze zdjęcie instalacji -> zapis referencji
+python Main.py przyklady/panele_referencja.jpg
 
-dla każdego panelu:
-- `panel.extract_warped_bgr(img)` - wyprostowany kolor
-- `panel.extract_warped(img)` - wyprostowany odcienie szarości
-- `analyzer.get_grid_stats(warped_gray)` i `check_changes()`
-- `analyzer.get_dominant_color()` i `identify_color_name()` dla komórki
-- `Visualizer.draw_cell_border()` + `draw_panel_info()`
+# 2. kolejne zdjęcie tej samej instalacji -> wykrywanie zmian
+python Main.py przyklady/panele_zabrudzenie.jpg --save wynik.jpg
+```
 
-Po zaaplikowaniu wszystkich paneli:
-- `Visualizer.show("System Analizy Paneli", output)`
+| Opcja | Domyślnie | Opis |
+|---|---|---|
+| `--conf` | 0.2 | próg pewności detekcji YOLO |
+| `--threshold` | 25 | o ile musi zmienić się jasność komórki (0–255) |
+| `--ref-dir` | `refs` | gdzie trzymać referencje paneli |
+| `--save` | – | zapis obrazu wynikowego |
+| `--no-show` | – | bez okna podglądu |
 
-## Działanie logiczne
+Aby zacząć od nowa (nowa instalacja lub nowa referencja), usuń folder `refs/`.
 
-- `PanelDetector.detect_panels`: wykorzystuje `YOLO` do maski, spaja maski i znajduje kontury.
-- `Panel`: oblicza `rect`, ładuje transformację `M`, pozwala wyciąć wyprostowany panel.
-- `PanelAnalyzer`: pierwsze uruchomienie zapisuje referencję, kolejne porównuje i zwraca boolean 2D dla przekroczeń `threshold`.
-- `Visualizer`: rysuje obrysy, statusy i kolorowe/niebieskie/czerwone alarmy.
+## Ograniczenia i plany
 
-## Notatki
-
-- Folder `refs/` używany do metryk referencyjnych w `PanelAnalyzer`.
-- Limit siatki można modyfikować w `PanelAnalyzer(grid_size=(liczba, liczba))` i `Panel.get_cells(rows, cols)`.
-- W `Main.py` występuje podwójne wywołanie pętli rysowania paneli, możesz to zwinąć do jednej pętli (oszczędność wydajności).
-
-## Rozszerzenia
-
-- Dodaj obsługę wideo zamiast pliku obrazu.
-- Doprecyzuj `src/Color.py` lub usuń jeśli nieużywane.
-- Zdefiniuj strukturę ROI i kalibrację do własnych paneli.
-- Zastąp `print(...)` logowaniem do pliku.
-
----
-
-### Komentarz modułu `src/kolory.py`
-
-Funkcja `detect_colors_on_panel` spekuluje, że w komórce jest jeden kolor z listy (pomarańcz, żółty, zielony, niebieski, fiolet, czerwony).
-Wypisuje logi czasowe i pozycję wykrytej zmiany. Uruchomienie odbywa się przy odczycie obrazu z `sciezka_do_pliku`.
-
-### Komentarz modułu `src/m2.py`
-
-Powielona funkcjonalność `Panel/PanelDetector/PanelAnalyzer/Visualizer` z pliku głównego. Przydatne jako backup/refaktor, możesz połączyć ją z głównym kodem lub usunąć duplikację.
+- Porównanie zakłada **stałe ujęcie** (kamera stacjonarna lub ten sam punkt przelotu drona). Przy innym kadrze panele mogą dostać inne ID. Plan: dopasowanie paneli między zdjęciami po położeniu i kształcie zamiast po kolejności detekcji.
+- Metoda jest wrażliwa na zmianę oświetlenia całej sceny. Częściowo kompensuje to `equalizeHist`. Plan: normalizacja względem sąsiednich komórek.
+- Kolejny krok: klasyfikacja typu anomalii (brud, pęknięcie, hot-spot) osobnym modelem.
